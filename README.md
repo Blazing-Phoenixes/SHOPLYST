@@ -158,12 +158,6 @@ To test admin features:
 
 ---
 
-## 📸 Screenshots (Optional)
-
-*Add your screenshots here*
-
----
-
 ## 🔧 Future Enhancements
 
 * Cloud database integration
@@ -193,7 +187,7 @@ This project is licensed under the **MIT License**.
 
 ## 👨‍💻 Author
 
-**Bharathkumar**
+**BHARATH KUMAR S**
 
 ---
 
