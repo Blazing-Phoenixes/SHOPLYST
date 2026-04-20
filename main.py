@@ -1,12 +1,12 @@
 import tkinter as tk
 
-# ================= SOCIAL MEDIA =================
+# SOCIAL MEDIA
 from Login import LoginSignupApp
 from home_screen import HomeFrame
 from profile_screen import ProfileFrame
 from chat_gui import ChatFrame
 
-# ================= ECOMMERCE =================
+# ECOMMERCE
 from Ehome_screen import HomeScreen
 from Ecart_screen import CartScreen
 from Eorders_screen import OrdersScreen
@@ -15,10 +15,10 @@ from Epayment_screen import PaymentScreen
 from Eadmin_panel import AdminPanel
 from Eproduct_details import ProductDetailsScreen
 
-from sm_database import get_user_details, get_user_role, resource_path
+from sm_database import get_user_details, get_user_role
+from input_handler import InputHandler
 
-
-# ================= APP SELECTOR =================
+# APP SELECTOR
 class AppSelectorScreen(tk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent, bg="#0f172a")
@@ -62,18 +62,15 @@ class AppSelectorScreen(tk.Frame):
                  fg="#64748b", bg="#1e293b").pack(pady=(20, 30))
 
 
-# ================= MAIN APP =================
+# MAIN APP
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        # ✅ App Icon (IMPORTANT)
-        try:
-            self.iconbitmap(resource_path("shoplyst.ico"))
-        except Exception as e:
-            print("Icon not found or failed to load:", e)
         self.title("Shoplyst")
         self.state("zoomed")
         self.configure(bg="#0f172a")
+        # ENABLE GLOBAL INPUT HANDLER
+        InputHandler(self)
 
         # ---------------- USER STATE ----------------
         self.current_user = None
@@ -98,7 +95,7 @@ class MainApp(tk.Tk):
         # Start app
         self.show_frame("LoginSignupApp")
 
-    # ================= REGISTER =================
+    # REGISTER
     def register_frames(self):
         frame_classes = [
             LoginSignupApp,
@@ -127,7 +124,7 @@ class MainApp(tk.Tk):
             except Exception as e:
                 print(f"[ERROR] Loading {F.__name__}: {e}")
 
-    # ================= NAVIGATION =================
+    # NAVIGATION
     def show_frame(self, name, **kwargs):
         frame = self.frames.get(name)
 
@@ -162,7 +159,7 @@ class MainApp(tk.Tk):
             last = self.history.pop()
             self.show_frame(last)
 
-    # ================= LOGIN SUCCESS =================
+    # LOGIN SUCCESS
     def login_success(self, user):
         self.current_user = user
 
@@ -177,14 +174,14 @@ class MainApp(tk.Tk):
         self.history.clear()
         self.show_frame("AppSelectorScreen")
 
-    # ================= LOGOUT =================
+    # LOGOUT
     def logout(self):
         self.current_user = None
         self.user_data = None
         self.history.clear()
         self.show_frame("LoginSignupApp")
 
-    # ================= SOCIAL =================
+    # SOCIAL
     def open_social(self):
         if not self.current_user:
             self.show_frame("LoginSignupApp")
@@ -193,7 +190,7 @@ class MainApp(tk.Tk):
         print("Opening Social Media...")
         self.show_frame("HomeFrame", user=self.current_user)
 
-    # ================= ECOMMERCE =================
+    # ECOMMERCE
     def open_ecommerce(self):
         if not self.current_user:
             self.show_frame("LoginSignupApp")
@@ -210,7 +207,7 @@ class MainApp(tk.Tk):
             print("Opening User Ecommerce...")
             self.show_frame("HomeScreen", user=self.user_data)
 
-# ================= RUN =================
+# RUN
 if __name__ == "__main__":
     app = MainApp()
     app.mainloop()

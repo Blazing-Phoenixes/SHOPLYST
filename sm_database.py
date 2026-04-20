@@ -2,43 +2,14 @@
 import sqlite3
 import re
 import os
-import shutil
-import sys
 from passlib.hash import pbkdf2_sha256
 from datetime import datetime
+import shutil
+import sys
 
 DB_NAME = "app.db"
 
-def resource_path(relative_path):
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
-
-def get_db_path():
-    base = os.getenv("LOCALAPPDATA")
-    app_folder = os.path.join(base, "Shoplyst")
-
-    if not os.path.exists(app_folder):
-        os.makedirs(app_folder)
-
-    return os.path.join(app_folder, DB_NAME)
-
-def setup_database():
-    dest_db = get_db_path()
-
-    # Copy DB from EXE to user system (first run only)
-    if not os.path.exists(dest_db):
-        source_db = resource_path(DB_NAME)
-        shutil.copy(source_db, dest_db)
-
-    return dest_db
-
-# ✅ SINGLE DB PATH FOR ENTIRE APP
-DB_NAME = setup_database()
-
-# -------------------- DATABASE INITIALIZATION --------------------
+# DATABASE INITIALIZATION
 def connect_db():
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
@@ -89,9 +60,35 @@ def connect_db():
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # Likes
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS media_likes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            media_id INTEGER,
+            username TEXT
+        )
+        """)
 
+        # Comments
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS media_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            media_id INTEGER,
+            username TEXT,
+            comment TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
 
-        # PRODUCTS
+        # Caption
+        # SAFE ADD COLUMN (no crash)
+        cursor.execute("PRAGMA table_info(media)")
+        columns = [col[1] for col in cursor.fetchall()]
+
+        if "caption" not in columns:
+            cursor.execute("ALTER TABLE media ADD COLUMN caption TEXT")
+
+        #PRODUCTS
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,8 +100,7 @@ def connect_db():
             stock INTEGER DEFAULT 0 CHECK(stock >= 0)
         )
         """)
-
-        # CART
+        #CART
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS cart (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,8 +112,7 @@ def connect_db():
             FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
         )
         """)
-
-        # ORDERS
+        #ORDERS
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,8 +123,7 @@ def connect_db():
             FOREIGN KEY(user_id) REFERENCES users(id)
         )
         """)
-
-        # ORDER ITEMS
+        #ORDER ITEMS
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS order_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,8 +134,7 @@ def connect_db():
             FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
         )
         """)
-
-        # WISHLIST
+        #WISHLIST
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS wishlist (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -155,7 +148,7 @@ def connect_db():
 
         conn.commit()
 
-# -------------------- VALIDATION HELPERS --------------------
+# VALIDATION HELPERS
 def validate_password(password):
     return (len(password) >= 8 and
             re.search(r"[A-Z]", password) and
@@ -172,7 +165,7 @@ def validate_phone(phone):
 def validate_email(email):
     return re.fullmatch(r"[^@]+@[^@]+\.[^@]+", email)
 
-# -------------------- USER REGISTRATION --------------------
+# USER REGISTRATION
 def add_user(username, phone, password, email=None):
     if not validate_username(username):
         return "Username must contain only letters, numbers, and underscores."
@@ -201,7 +194,7 @@ def add_user(username, phone, password, email=None):
             return "Email already in use!"
         return "Account creation failed!"
 
-# -------------------- USER LOGIN --------------------
+# USER LOGIN
 def login_user(user_input, password):
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
@@ -215,7 +208,7 @@ def login_user(user_input, password):
         return user
     return None
 
-# ================= ROLE =================
+# ROLE
 def promote_to_admin(username):
     with sqlite3.connect(DB_NAME) as conn:
         conn.execute("UPDATE users SET role='admin' WHERE username=?", (username,))
@@ -231,26 +224,20 @@ def get_user_role(username):
     
 def assign_role(current_user, target_user, new_role):
     with sqlite3.connect(DB_NAME) as conn:
-        c = conn.cursor()
-
-        # Get current user's role
+        c = conn.cursor()#Get current user's role
         c.execute("SELECT role FROM users WHERE username=?", (current_user,))
         current = c.fetchone()
 
         if not current or current[0] != "admin":
-            return "Only admin can change roles"
-
-        # 🚫 Prevent self role change (already handled in UI but keep safe)
+            return "Only admin can change roles"# Prevent self role change (already handled in UI but keep safe)
         if current_user == target_user:
-            return "You cannot change your own role"
-
-        # ✅ ALLOW admin → user (even if target is admin)
+            return "You cannot change your own role"# ALLOW admin → user (even if target is admin)
         c.execute("UPDATE users SET role=? WHERE username=?", (new_role, target_user))
         conn.commit()
 
         return f"{target_user} updated to {new_role}"
 
-# ================= PRODUCTS =================
+# PRODUCTS
 def add_product(name, price, description, image, category, stock):
     image = image if image else "no_image.png"
 
@@ -274,7 +261,7 @@ def search_products(query):
         """, (f"%{query}%", f"%{query}%")).fetchall()
 
 
-# ================= CART =================
+# CART
 def add_to_cart(user_id, product_id):
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
@@ -323,7 +310,7 @@ def get_cart(user_id):
         """, (user_id,)).fetchall()
 
 
-# ================= ORDERS =================
+# ORDERS
 def place_order(user_id):
     cart_items = get_cart(user_id)
     if not cart_items:
@@ -371,7 +358,7 @@ def get_order_items(order_id):
         """, (order_id,)).fetchall()
 
 
-# ================= WISHLIST =================
+# WISHLIST
 def add_to_wishlist(user_id, product_id):
     with sqlite3.connect(DB_NAME) as conn:
         conn.execute("""
@@ -396,7 +383,7 @@ def get_wishlist(user_id):
         """, (user_id,)).fetchall()
 
 
-# ================= ANALYTICS =================
+# ANALYTICS
 def get_admin_stats():
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
@@ -412,7 +399,7 @@ def get_admin_stats():
 
     return users, orders, revenue
 
-# -------------------- PROFILE FUNCTIONS --------------------
+# PROFILE FUNCTIONS
 def get_user_details(identifier):
     identifier = str(identifier).lower()
     with sqlite3.connect(DB_NAME) as conn:
@@ -463,7 +450,7 @@ def update_email(identifier, new_email):
     except sqlite3.IntegrityError:
         return "Email already in use!"
 
-# -------------------- PASSWORD MANAGEMENT --------------------
+# PASSWORD MANAGEMENT
 def verify_password(identifier, input_password):
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
@@ -482,7 +469,7 @@ def update_password(identifier, new_password):
                        (hashed, identifier.lower(), identifier))
     return "Password updated successfully!"
 
-# -------------------- DELETE ACCOUNT --------------------
+# DELETE ACCOUNT
 def delete_user(identifier):
     identifier = str(identifier).lower()
     with sqlite3.connect(DB_NAME) as conn:
@@ -493,7 +480,7 @@ def delete_user(identifier):
         cursor.execute("DELETE FROM users WHERE username=? OR phone=?", (identifier, identifier))
     return "User deleted successfully!"
 
-# -------------------- FRIEND SYSTEM --------------------
+# FRIEND SYSTEM
 def search_users(query):
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
@@ -538,11 +525,11 @@ def update_request_status(sender, receiver, action):
         return "Invalid action."
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
-        # ✅ If accepted → add to friends table
+        #  If accepted → add to friends table
         cursor.execute("UPDATE friend_requests SET status=? WHERE sender=? AND receiver=?", 
                            (action, sender, receiver))
         if action == "rejected":
-        # ✅ Delete request ONLY after action
+        #  Delete request ONLY after action
             cursor.execute(
             "DELETE FROM friend_requests WHERE sender=? AND receiver=?",
             (sender, receiver)
@@ -573,7 +560,7 @@ def unfriend_user(user1, user2):
         """, (user1, user2, user2, user1))
         return cursor.rowcount > 0
 
-# -------------------- CHAT FUNCTIONS --------------------
+# CHAT FUNCTIONS
 def send_message(sender, receiver, message):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with sqlite3.connect(DB_NAME) as conn:
@@ -610,16 +597,39 @@ def get_unread_count(user):
         """, (user,))
         return dict(cursor.fetchall())
 
-# -------------------- MEDIA FUNCTIONS --------------------
-def post_media(user_id, username, file_path, file_type, visibility):
+def get_base_dir():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+BASE_DIR = get_base_dir()
+MEDIA_DIR = os.path.join(BASE_DIR, "media")
+
+def save_user_image(user_id, source_path):
+    user_folder = os.path.join(MEDIA_DIR, f"user_{user_id}")
+    os.makedirs(user_folder, exist_ok=True)
+
+    file_name = os.path.basename(source_path)
+    dest_path = os.path.join(user_folder, file_name)
+
+    shutil.copy(source_path, dest_path)
+
+    # 🔥 Convert to RELATIVE path before saving
+    relative_path = os.path.relpath(dest_path, BASE_DIR)
+
+    return relative_path
+
+# MEDIA FUNCTIONS
+def post_media(user_id, username, file_path, file_type, visibility, caption=""):
     if os.path.getsize(file_path) > 500 * 1024 * 1024:
         return "File size exceeds 500MB"
+
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO media (user_id, username, file_path, file_type, visibility)
-            VALUES (?, ?, ?, ?, ?)
-        """, (user_id, username, file_path, file_type, visibility))
+            INSERT INTO media (user_id, username, file_path, file_type, visibility, caption)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (user_id, username, file_path, file_type, visibility, caption))
         return "Posted"
 
 def get_public_media():
@@ -631,13 +641,27 @@ def get_public_media():
 def get_private_media_for_user(user_id, friends_ids):
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
-        if not friends_ids:
-            return []
-        format_ids = ','.join(['?'] * len(friends_ids))
-        query = f"SELECT * FROM media WHERE visibility='private' AND user_id IN ({format_ids}) ORDER BY timestamp DESC"
-        cursor.execute(query, friends_ids)
-        return cursor.fetchall()
 
+        if not friends_ids:
+            cursor.execute("""
+                SELECT * FROM media 
+                WHERE visibility='private' AND user_id=?
+                ORDER BY timestamp DESC
+            """, (user_id,))
+            return cursor.fetchall()
+
+        format_ids = ','.join(['?'] * len(friends_ids))
+
+        query = f"""
+        SELECT * FROM media 
+        WHERE visibility='private'
+        AND (user_id=? OR user_id IN ({format_ids}))
+        ORDER BY timestamp DESC
+        """
+
+        cursor.execute(query, [user_id] + friends_ids)
+        return cursor.fetchall()
+    
 def delete_media(media_id, user_id):
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
@@ -650,3 +674,64 @@ def update_media(media_id, new_file_path, new_visibility, user_id):
             UPDATE media SET file_path=?, visibility=?
             WHERE id=? AND user_id=?
         """, (new_file_path, new_visibility, media_id, user_id))
+
+def toggle_like(media_id, username):
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT 1 FROM media_likes
+            WHERE media_id=? AND username=?
+        """, (media_id, username))
+
+        if cursor.fetchone():
+            cursor.execute("""
+                DELETE FROM media_likes
+                WHERE media_id=? AND username=?
+            """, (media_id, username))
+            return "unliked"
+        else:
+            cursor.execute("""
+                INSERT INTO media_likes (media_id, username)
+                VALUES (?, ?)
+            """, (media_id, username))
+            return "liked"
+        
+def get_like_count(media_id):
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*) FROM media_likes WHERE media_id=?
+        """, (media_id,))
+        return cursor.fetchone()[0]
+
+def get_liked_users(media_id):
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT username FROM media_likes WHERE media_id=?
+        """, (media_id,))
+        return [row[0] for row in cursor.fetchall()]
+    
+def add_comment(media_id, username, comment):
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO media_comments (media_id, username, comment)
+            VALUES (?, ?, ?)
+        """, (media_id, username, comment))
+
+def get_comments(media_id):
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT username, comment, created_at
+            FROM media_comments
+            WHERE media_id=?
+            ORDER BY created_at ASC
+        """, (media_id,))
+        return cursor.fetchall()
+    
+def share_post_to_chat(sender, receiver, media_path, caption=""):
+    message = f"[File]|{media_path}|{caption}"
+    send_message(sender, receiver, message)

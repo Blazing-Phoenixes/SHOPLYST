@@ -4,14 +4,19 @@ from tkinter import ttk, filedialog, simpledialog
 from PIL import Image, ImageTk
 import os
 import mimetypes
-
+# import chat_gui
 from sm_database import (
-    search_users, send_friend_request, get_friend_requests, update_request_status,
+    add_comment,
+    get_comments,
+    get_like_count,
+    get_liked_users,
+    search_users, send_friend_request, get_friend_requests,
+    share_post_to_chat, update_request_status,
     get_friends_list, get_user_details, unfriend_user,
     post_media, get_public_media, get_private_media_for_user, delete_media
 )
 
-# ================= MODERN ECOMMERCE THEME =================
+# MODERN ECOMMERCE THEME
 BG = "#0f172a"              # Dark background
 CARD = "#1e293b"           # Card background
 PRIMARY = "#6366f1"        # Indigo
@@ -31,7 +36,7 @@ class HomeFrame(tk.Frame):
         self.grid_rowconfigure(2, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        # ================= HEADER =================
+        # HEADER
         header = tk.Frame(self, bg="#1e293b", height=60)
         header.grid(row=0, column=0, sticky="ew")
 
@@ -57,7 +62,7 @@ class HomeFrame(tk.Frame):
                 relief="flat", padx=12,
                 command=self.app.logout   # ✅ FIXED
         ).pack(side="right", padx=5, pady=10)
-        # ================= SEARCH BAR =================
+        # SEARCH BAR
         top = tk.Frame(self, bg=BG)
         top.grid(row=1, column=0, sticky="ew")
 
@@ -81,7 +86,7 @@ class HomeFrame(tk.Frame):
         # Live search still works
         self.search_entry.bind("<KeyRelease>", lambda e: self.render_search())
 
-        # ================= TABS =================
+        # TABS
         style = ttk.Style()
         style.theme_use("default")
 
@@ -118,14 +123,14 @@ class HomeFrame(tk.Frame):
                   bg=PRIMARY, fg="white",
                   command=self.render_requests).pack(pady=5)
 
-    # ================= TOAST =================
+    # TOAST
     def show_toast(self, msg, color=SECONDARY):
         toast = tk.Label(self, text=msg, bg=color, fg="black",
                          font=("Segoe UI", 10, "bold"))
         toast.place(relx=0.5, rely=0.95, anchor="center")
         self.after(2000, toast.destroy)
 
-    # ================= LOAD =================
+    # LOAD
     def load_data(self, user):
         self.user = user
         details = get_user_details(user)
@@ -137,7 +142,7 @@ class HomeFrame(tk.Frame):
         self.render_friends()
         self.display_media_feed()
 
-    # ================= SCROLL =================
+    # SCROLL
     def setup_scroll(self, parent, name):
         frame = tk.Frame(parent, bg=BG)
         setattr(self, f"{name}_frame", frame)
@@ -169,7 +174,7 @@ class HomeFrame(tk.Frame):
         tk.Label(parent, text=msg, fg=SUBTEXT, bg=BG,
                  font=("Segoe UI", 11)).pack(pady=20)
 
-    # ================= SEARCH =================
+    # SEARCH
     def render_search(self):
         self.clear_children(self.search_scrollable)
         query = self.search_var.get().strip()
@@ -201,7 +206,7 @@ class HomeFrame(tk.Frame):
         self.search_var.set("")
         self.render_search()
 
-    # ================= REQUESTS =================
+    # REQUESTS
     def render_requests(self):
         self.clear_children(self.requests_scrollable)
         data = get_friend_requests(self.user)
@@ -230,7 +235,7 @@ class HomeFrame(tk.Frame):
         self.render_requests()
         self.render_friends()
 
-    # ================= FRIENDS =================
+    # FRIENDS
     def render_friends(self):
         self.clear_children(self.friends_scrollable)
         friends = get_friends_list(self.user)
@@ -259,32 +264,64 @@ class HomeFrame(tk.Frame):
             self.show_toast(f"{friend} removed", ERROR)
             self.render_friends()
 
-    # ================= MEDIA =================
+    # MEDIA
     def upload_media(self):
         file_path = filedialog.askopenfilename()
         if not file_path:
             return
 
         visibility = simpledialog.askstring("Visibility", "public/private")
+        caption = simpledialog.askstring("Caption", "Write something...")
+
         file_type = mimetypes.guess_type(file_path)[0] or 'unknown'
 
-        post_media(self.user, self.user, file_path, file_type, visibility)
+        post_media(self.user, self.user, file_path, file_type, visibility, caption)
         self.show_toast("Uploaded successfully")
         self.display_media_feed()
 
     def display_media_feed(self):
         self.clear_children(self.media_scrollable)
 
-        posts = get_public_media() + get_private_media_for_user(
-            self.user, get_friends_list(self.user)
+        friends = get_friends_list(self.user)  # ✅ fetch once
+
+        posts = sorted(
+            get_public_media() + get_private_media_for_user(
+                self.user, friends
+            ),
+            key=lambda x: x[6],  # timestamp
+            reverse=True
         )
 
-        for media_id, uid, uname, path, ftype, vis, time in posts:
+        for post in posts:
+            try:
+                media_id, uid, uname, path, ftype, vis, time, caption = post
+            except ValueError:
+                media_id, uid, uname, path, ftype, vis, time = post
+                caption = ""
+
+            # ✅ EXTRA SECURITY FILTER (FIXED SAFE COMPARISON)
+            if vis == "private":
+                if not (str(uid).lower() == str(self.user).lower() or str(uid).lower() in [str(f).lower() for f in friends]):
+                    continue
+
             card = tk.Frame(self.media_scrollable, bg=CARD)
             card.pack(fill="x", padx=12, pady=8)
 
             tk.Label(card, text=uname, bg=CARD, fg=TEXT,
-                     font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=10)
+                    font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=10)
+
+            visibility_text = "🌍 Public" if vis == "public" else "🔒 Private"
+
+            tk.Label(card, text=visibility_text,
+                    bg=CARD, fg=SUBTEXT,
+                    font=("Segoe UI", 9, "italic")
+                    ).pack(anchor="w", padx=10)
+
+            # Caption
+            if caption:
+                tk.Label(card, text=caption,
+                        bg=CARD, fg=SUBTEXT,
+                        wraplength=400, justify="left").pack(anchor="w", padx=10)
 
             if ftype and "image" in ftype:
                 try:
@@ -299,20 +336,169 @@ class HomeFrame(tk.Frame):
                     tk.Label(card, text="Preview failed", fg=SUBTEXT).pack()
             else:
                 tk.Label(card, text=os.path.basename(path),
-                         fg=SUBTEXT).pack(pady=5)
+                        fg=SUBTEXT).pack(pady=5)
+            # 🔥 SHOW COMMENTS
+            comments = get_comments(media_id)
 
+            comment_box = tk.Frame(card, bg=CARD)
+            comment_box.pack(fill="x", padx=10, pady=5)
+            # Expandable full comments section
+            expand_frame = tk.Frame(card, bg=CARD)
+            expand_frame.pack(fill="x", padx=10)
+
+            if len(comments) > 3:
+                tk.Button(comment_box, text="View all",
+                        bg="#1e293b", fg=SUBTEXT,
+                        relief="flat",
+                        command=lambda c=expand_frame, m=media_id: self.toggle_comments(c, m)
+                        ).pack(anchor="e")
+
+            # Show existing comments
+            for user, text, time in comments[-3:]:  # show last 3 comments
+                tk.Label(comment_box,
+                        text=f"{user}: {text}",
+                        bg=CARD, fg=SUBTEXT,
+                        anchor="w", justify="left",
+                        wraplength=350).pack(anchor="w")
+
+            # 🔥 ADD COMMENT FIELD (INLINE)
+            entry = tk.Entry(comment_box, bg="#0f172a", fg="white",
+                            insertbackground="white", relief="flat")
+            entry.pack(side="left", fill="x", expand=True, pady=5)
+
+            tk.Button(comment_box, text="Comment",
+                    bg=PRIMARY, fg="white",
+                    command=lambda e=entry, m=media_id: self.add_inline_comment(e, m)
+                    ).pack(side="right", padx=5)
             btn_frame = tk.Frame(card, bg=CARD)
             btn_frame.pack(pady=5)
 
-            tk.Button(btn_frame, text="Open",
-                      bg=PRIMARY, fg="white",
-                      command=lambda p=path: os.startfile(p)
-                      ).pack(side="left", padx=5)
+            likes_frame = tk.Frame(card, bg=CARD)
+            likes_frame.pack(fill="x", padx=10)
 
-            if uid == self.user:
+            # LIKE
+            like_count = get_like_count(media_id)
+
+            tk.Button(btn_frame, text=f"❤️ {like_count}",
+                    bg=PRIMARY, fg="white",
+                    command=lambda m=media_id, lf=likes_frame: self.handle_like(m, lf)
+                    ).pack(side="left", padx=5)
+
+            # COMMENT
+            # tk.Button(btn_frame, text="💬 Comment",
+                    # bg="#334155", fg="white",
+                    # command=lambda: None
+                    # ).pack(side="left", padx=5)
+
+            # SHARE
+            tk.Button(btn_frame, text="📤 Share",
+                    bg="#475569", fg="white",
+                    command=lambda p=path: self.share_post(p)
+                    ).pack(side="left", padx=5)
+
+            tk.Button(btn_frame, text="Open",
+                    bg=PRIMARY, fg="white",
+                    command=lambda p=path: os.startfile(p)
+                    ).pack(side="left", padx=5)
+
+            if str(uid).lower() == str(self.user).lower():
                 tk.Button(btn_frame, text="Delete", bg=ERROR, fg="white",
-                          command=lambda m=media_id: self.delete_post(m)
-                          ).pack(side="left", padx=5)
+                        command=lambda m=media_id: self.delete_post(m)
+                        ).pack(side="left", padx=5)
+                           
+    def like_post(self, media_id):
+        from sm_database import toggle_like
+        toggle_like(media_id, self.user)
+        self.display_media_feed()
+
+    def handle_like(self, media_id, container):
+        from sm_database import toggle_like
+        toggle_like(media_id, self.user)
+
+        # Refresh only like section instead of full reload
+        for w in container.winfo_children():
+            w.destroy()
+
+        self.toggle_likes_view(container, media_id)
+
+    def toggle_likes_view(self, container, media_id):
+        # Clear previous content (toggle behavior)
+        if container.winfo_children():
+            for w in container.winfo_children():
+                w.destroy()
+            return
+
+        users = get_liked_users(media_id)
+
+        if not users:
+            tk.Label(container, text="No likes yet",
+                    bg=CARD, fg=SUBTEXT).pack(anchor="w")
+            return
+
+        for u in users:
+            tk.Label(container, text=f"❤️ {u}",
+                    bg=CARD, fg=TEXT).pack(anchor="w")
+
+    def open_comment_box(self, media_id):
+        comment = simpledialog.askstring("Comment", "Write comment:")
+        if comment:
+            add_comment(media_id, self.user, comment)
+            self.display_media_feed()
+
+    def add_inline_comment(self, entry, media_id):
+        comment = entry.get().strip()
+        if comment:
+            add_comment(media_id, self.user, comment)
+            entry.delete(0, tk.END)
+            self.display_media_feed()
+
+    def toggle_comments(self, container, media_id):
+        # Toggle behavior
+        if container.winfo_children():
+            for w in container.winfo_children():
+                w.destroy()
+            return
+
+        comments = get_comments(media_id)
+
+        if not comments:
+            tk.Label(container, text="No comments yet",
+                    bg=CARD, fg=SUBTEXT).pack(anchor="w")
+            return
+
+        for user, text, time in comments:
+            tk.Label(container,
+                    text=f"{user}: {text}",
+                    bg=CARD, fg=TEXT,
+                    anchor="w", justify="left",
+                    wraplength=350).pack(anchor="w", pady=2)
+            
+    def share_post(self, path):
+        friends = get_friends_list(self.user)
+
+        if not friends:
+            self.show_toast("No friends to share")
+            return
+
+        receivers = simpledialog.askstring(
+            "Share",
+            f"Send to multiple (comma separated):\n{', '.join(friends)}"
+        )
+
+        if not receivers:
+            return
+
+        sent = 0
+        for r in receivers.split(","):
+            r = r.strip().lower()
+            if r in [f.lower() for f in friends]:
+                share_post_to_chat(self.user, r, path)
+                sent += 1
+
+        if sent:
+            self.show_toast(f"Sent to {sent} users")
+        else:
+            self.show_toast("No valid users", ERROR)
 
     def delete_post(self, media_id):
         delete_media(media_id, self.user)
